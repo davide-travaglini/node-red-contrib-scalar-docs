@@ -1,5 +1,13 @@
 # node-red-contrib-scalar-docs
 
+[![npm version](https://img.shields.io/npm/v/node-red-contrib-scalar-docs.svg)](https://www.npmjs.com/package/node-red-contrib-scalar-docs)
+[![npm downloads](https://img.shields.io/npm/dm/node-red-contrib-scalar-docs.svg)](https://www.npmjs.com/package/node-red-contrib-scalar-docs)
+[![Node.js ≥16](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](https://nodejs.org)
+[![Node-RED ≥3](https://img.shields.io/badge/node--red-%3E%3D3.0-red.svg)](https://nodered.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+If you'd like to support me, [![Ko-fi](https://img.shields.io/badge/Buy%20me%20a%20coffee-%23FF5E5B?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/davidetravaglini)
+
 Auto-generates and serves a [Scalar](https://scalar.com) API documentation UI for all `http in` nodes in your Node-RED flows.
 
 ## Features
@@ -10,6 +18,14 @@ Auto-generates and serves a [Scalar](https://scalar.com) API documentation UI fo
 - Modern interactive UI with multiple Scalar themes
 - Optional Bearer token to protect the docs and the OpenAPI spec
 - Inline button in every `http in` editor to jump directly to the endpoint config
+
+## Requirements
+
+| Dependency | Version |
+|---|---|
+| Node.js | `>=16` |
+| Node-RED | `>=3.0.0` |
+| express | `>=4.0.0` (already bundled with Node-RED) |
 
 ## Installation
 
@@ -110,6 +126,27 @@ When editing any `http in` node, a **Scalar Docs** row is added to the form. Use
 - Click the `+` icon to create a new `scalar-docs` config node
 
 The association is saved on the `http in` node and the `scalar-docs` label shows the number of linked endpoints.
+
+## Example Flow
+
+An importable example is available in [`examples/example-flow.json`](examples/example-flow.json).
+
+It contains a `scalar-docs` config node and three working endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/users` | Returns a mock list of users (supports `?limit=N`) |
+| `GET` | `/api/users/:id` | Returns a single user or 404 |
+| `POST` | `/api/users` | Creates a user (requires `name` and `email`) |
+
+Base diagnostic routes (`/api/scalar/ping`, `/health`, `/info`) and the `POST /api/scalar/echo` endpoint are also enabled.
+
+**How to import:**
+
+1. In Node-RED open **Menu (☰) > Import**
+2. Paste the contents of `example-flow.json` or upload the file directly
+3. Click **Import**, place the nodes, then **Deploy**
+4. Open `http://localhost:1880/api-docs`
 
 ## OpenAPI spec
 
