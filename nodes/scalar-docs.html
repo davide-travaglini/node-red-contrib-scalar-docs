@@ -1,0 +1,907 @@
+<!-- scalar-docs config node -->
+<script type="text/javascript">
+(function () {
+  'use strict';
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return String(str || '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function methodBadge(method) {
+    const colors = {
+      get:'#61affe', post:'#49cc90', put:'#fca130', delete:'#f93e3e',
+      patch:'#50e3c2', options:'#0d5aa7', head:'#9012fe', use:'#888'
+    };
+    const m = (method || 'get').toLowerCase();
+    return `<span style="background:${colors[m]||'#888'};color:#fff;
+      padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;
+      min-width:52px;display:inline-block;text-align:center;text-transform:uppercase">${esc(m)}</span>`;
+  }
+
+  function validateJsonField(el) {
+    const val = $(el).val().trim();
+    if (!val) {
+      $(el).css('border-color', '').next('.scalar-json-err').remove();
+      return;
+    }
+    try {
+      JSON.parse(val);
+      $(el).css('border-color', '');
+      $(el).next('.scalar-json-err').remove();
+    } catch (e) {
+      $(el).css('border-color', '#e53e3e');
+      if (!$(el).next('.scalar-json-err').length) {
+        $(el).after(`<span class="scalar-json-err" style="color:#e53e3e;font-size:10px;display:block">Invalid JSON: ${esc(e.message)}</span>`);
+      } else {
+        $(el).next('.scalar-json-err').text('Invalid JSON: ' + e.message);
+      }
+    }
+  }
+
+  // ── Default state ──────────────────────────────────────────────────────────
+
+  const DEFAULT_ROUTES = {
+    ping:true, health:true, health_live:true, health_ready:false, info:true,
+    metrics:false, env:false, context:false,
+    flows:false, flows_count:false, nodes:false, nodes_http:false,
+    diagnostics:false, logs:false, logs_errors:false,
+    echo:false, auth_test:false, dependencies:false, dependencies_outdated:false
+  };
+
+  const ROUTE_META = [
+    { group:'🟢 Base', key:'ping',                  method:'GET',  path:'/ping',                   label:'Ping',                   desc:'Minimal liveness check, returns "pong"' },
+    { group:'🟢 Base', key:'health',                method:'GET',  path:'/health',                  label:'Health',                 desc:'Status, uptime, timestamp' },
+    { group:'🟢 Base', key:'health_live',           method:'GET',  path:'/health/live',             label:'Liveness probe',         desc:'K8s/Docker liveness probe' },
+    { group:'🟢 Base', key:'health_ready',          method:'GET',  path:'/health/ready',            label:'Readiness probe',        desc:'200 only after flows are deployed' },
+    { group:'🟢 Base', key:'info',                  method:'GET',  path:'/info',                    label:'System info',            desc:'NR version, Node.js, OS, hostname, uptime' },
+    { group:'🔵 Runtime', key:'metrics',            method:'GET',  path:'/metrics',                 label:'Runtime metrics',        desc:'CPU, memory, heap, event loop' },
+    { group:'🔵 Runtime', key:'env',                method:'GET',  path:'/env',                     label:'Env variables',          desc:'Filtered by whitelist (safe)' },
+    { group:'🔵 Runtime', key:'context',            method:'GET',  path:'/context',                 label:'Global context',         desc:'Node-RED global context (whitelist)' },
+    { group:'🟡 Flow Debug', key:'flows',           method:'GET',  path:'/flows',                   label:'List flows',             desc:'Active flows with ID and label' },
+    { group:'🟡 Flow Debug', key:'flows_count',     method:'GET',  path:'/flows/count',             label:'Flow stats',             desc:'Count flows and nodes by type' },
+    { group:'🟡 Flow Debug', key:'nodes',           method:'GET',  path:'/nodes',                   label:'Installed node types',   desc:'All installed node type names' },
+    { group:'🟡 Flow Debug', key:'nodes_http',      method:'GET',  path:'/nodes/http',              label:'HTTP nodes',             desc:'All http-in nodes detected in flows' },
+    { group:'🟠 Diagnostics', key:'diagnostics',    method:'GET',  path:'/diagnostics',             label:'Full diagnostics',       desc:'Aggregated health + metrics + info' },
+    { group:'🟠 Diagnostics', key:'logs',           method:'GET',  path:'/logs',                    label:'Recent logs',            desc:'Last N log entries (ring buffer)' },
+    { group:'🟠 Diagnostics', key:'logs_errors',    method:'GET',  path:'/logs/errors',             label:'Error logs',             desc:'Error-level entries only' },
+    { group:'🔴 Dev Tools', key:'echo',             method:'POST', path:'/echo',                    label:'Echo',                   desc:'Returns the received body — for client testing' },
+    { group:'🔴 Dev Tools', key:'auth_test',        method:'GET',  path:'/auth/test',               label:'Test auth token',        desc:'Verifies the configured Bearer token' },
+    { group:'🔴 Dev Tools', key:'dependencies',     method:'GET',  path:'/dependencies',            label:'npm dependencies',       desc:'Lists installed packages with versions' },
+    { group:'🔴 Dev Tools', key:'dependencies_outdated', method:'GET', path:'/dependencies/outdated', label:'Outdated packages', desc:'Runs npm outdated and returns results' }
+  ];
+
+  const PRESETS = {
+    base:        ['ping','health','health_live','info'],
+    runtime:     ['metrics','env','context'],
+    flow_debug:  ['flows','flows_count','nodes','nodes_http'],
+    diagnostics: ['diagnostics','logs','logs_errors'],
+    dev_tools:   ['echo','auth_test','dependencies','dependencies_outdated']
+  };
+
+  // ── Endpoints tab state (in-memory during edit) ───────────────────────────
+  let _httpNodes    = [];
+  let _expandedNode = null;
+  let _endpoints    = {};
+  let _filterText   = '';
+
+  function loadHttpNodes(callback) {
+    try {
+      _httpNodes = [];
+      RED.nodes.eachNode(function (n) {
+        if (n.type === 'http in') {
+          let flowName = n.z || 'global';
+          try {
+            if (RED.nodes.workspace && RED.nodes.workspace(n.z)) {
+              flowName = RED.nodes.workspace(n.z).label || flowName;
+            } else if (RED.nodes.subflow && RED.nodes.subflow(n.z)) {
+              flowName = RED.nodes.subflow(n.z).name || flowName;
+            }
+          } catch(e) {}
+          _httpNodes.push({
+            id: n.id,
+            name: n.name || '',
+            method: (n.method || 'get').toLowerCase(),
+            url: n.url || '/',
+            flowId: n.z,
+            flowName: flowName
+          });
+        }
+      });
+    } catch(err) {
+      console.error("Scalar docs load nodes error:", err);
+    }
+    if (callback) callback();
+  }
+
+  // ── Parameter helpers ──────────────────────────────────────────────────────
+
+  function emptyParam() {
+    return { in:'query', name:'', type:'string', required:false, description:'', example:'', format:'', enum:'' };
+  }
+
+  function emptyResponse() {
+    return { code:200, description:'OK', schema:'' };
+  }
+
+  function paramRow(p, idx) {
+    const inOpts = ['query','path','header','cookie'].map(v =>
+      `<option value="${v}" ${p.in===v?'selected':''}>${v}</option>`).join('');
+    const typeOpts = ['string','integer','number','boolean','array','object'].map(v =>
+      `<option value="${v}" ${p.type===v?'selected':''}>${v}</option>`).join('');
+    return `
+    <tr data-idx="${idx}" class="scalar-param-row">
+      <td><select class="p-in" style="width:75px">${inOpts}</select></td>
+      <td><input class="p-name" type="text" value="${esc(p.name)}" placeholder="name" style="width:90px"/></td>
+      <td><select class="p-type" style="width:75px">${typeOpts}</select></td>
+      <td style="text-align:center"><input class="p-req" type="checkbox" ${p.required?'checked':''}/></td>
+      <td><input class="p-desc" type="text" value="${esc(p.description)}" placeholder="description" style="width:110px"/></td>
+      <td><input class="p-example" type="text" value="${esc(p.example)}" placeholder="example" style="width:80px"/></td>
+      <td><button class="red-ui-button scalar-remove-param" style="padding:1px 6px" title="Remove">✕</button></td>
+    </tr>`;
+  }
+
+  function responseRow(r, idx) {
+    return `
+    <tr data-idx="${idx}" class="scalar-resp-row">
+      <td><input class="r-code" type="number" value="${esc(r.code)}" style="width:55px"/></td>
+      <td><input class="r-desc" type="text" value="${esc(r.description)}" placeholder="description" style="width:140px"/></td>
+      <td><textarea class="r-schema" rows="1" placeholder='{"type":"object"}' style="width:160px;font-family:monospace;font-size:11px">${esc(typeof r.schema==='object'?JSON.stringify(r.schema,null,2):r.schema||'')}</textarea></td>
+      <td><button class="red-ui-button scalar-remove-resp" style="padding:1px 6px" title="Remove">✕</button></td>
+    </tr>`;
+  }
+
+  // ── Endpoint detail panel ──────────────────────────────────────────────────
+
+  function renderEndpointDetail(nodeId) {
+    const node = _httpNodes.find(n => n.id === nodeId);
+    if (!node) return '';
+    const meta = _endpoints[nodeId] || {};
+    const params = meta.parameters || [];
+    const responses = meta.responses && meta.responses.length > 0
+      ? meta.responses : [{ code:200, description:'OK', schema:'' }];
+    const rb = meta.requestBody || {};
+    const ctOpts = ['application/json','application/x-www-form-urlencoded','multipart/form-data','text/plain'].map(v =>
+      `<option value="${v}" ${rb.contentType===v?'selected':''}>${v}</option>`).join('');
+
+    return `
+    <div class="scalar-endpoint-detail" data-id="${nodeId}" style="background:#f8f8f8;border:1px solid #ddd;border-radius:4px;padding:12px;margin-top:4px">
+
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <label style="flex:1">
+          <span style="font-size:11px;color:#666">Summary</span><br/>
+          <input class="scalar-field" data-field="summary" type="text" value="${esc(meta.summary||node.name)}"
+            placeholder="Short description" style="width:100%"/>
+        </label>
+        <label style="min-width:120px">
+          <span style="font-size:11px;color:#666">Operation ID</span><br/>
+          <input class="scalar-field" data-field="operationId" type="text" value="${esc(meta.operationId||'')}"
+            placeholder="myOperationId" style="width:100%"/>
+        </label>
+      </div>
+
+      <label style="display:block;margin-bottom:8px">
+        <span style="font-size:11px;color:#666">Description (Markdown supported)</span>
+        <textarea class="scalar-field" data-field="description" rows="3"
+          style="width:100%;font-size:12px;resize:vertical">${esc(meta.description||'')}</textarea>
+      </label>
+
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <label style="flex:1">
+          <span style="font-size:11px;color:#666">Tags (comma separated)</span><br/>
+          <input class="scalar-field" data-field="tags" type="text"
+            value="${esc((meta.tags||[]).join(', '))}"
+            placeholder="users, auth" style="width:100%"/>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;padding-top:16px">
+          <input class="scalar-field" data-field="deprecated" type="checkbox" ${meta.deprecated?'checked':''}/>
+          <span style="font-size:12px">Deprecated</span>
+        </label>
+      </div>
+
+      <!-- Parameters -->
+      <details open style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#555;padding:4px 0">⚙ Parameters</summary>
+        <div style="overflow-x:auto">
+          <table style="width:100%;font-size:11px;border-collapse:collapse" class="scalar-params-table">
+            <thead>
+              <tr style="color:#666;border-bottom:1px solid #ddd">
+                <th style="text-align:left;padding:2px 4px">In</th>
+                <th style="text-align:left;padding:2px 4px">Name</th>
+                <th style="text-align:left;padding:2px 4px">Type</th>
+                <th style="text-align:center;padding:2px 4px">Req</th>
+                <th style="text-align:left;padding:2px 4px">Description</th>
+                <th style="text-align:left;padding:2px 4px">Example</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${params.map((p, i) => paramRow(p, i)).join('')}
+            </tbody>
+          </table>
+        </div>
+        <button class="red-ui-button scalar-add-param" style="margin-top:6px;font-size:11px">+ Add parameter</button>
+      </details>
+
+      <!-- Request Body -->
+      <details style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#555;padding:4px 0">📦 Request Body</summary>
+        <div style="padding:8px 0">
+          <label style="font-size:11px;color:#666">Content-Type</label><br/>
+          <select class="scalar-field" data-field="requestBody.contentType" style="margin-bottom:6px">${ctOpts}</select><br/>
+          <label style="font-size:11px;color:#666">Description</label><br/>
+          <input class="scalar-field" data-field="requestBody.description" type="text"
+            value="${esc(rb.description||'')}" placeholder="Request body description" style="width:100%;margin-bottom:6px"/><br/>
+          <label style="font-size:11px;color:#666">JSON Schema</label>
+          <textarea class="scalar-field scalar-json-field" data-field="requestBody.schema" rows="6"
+            placeholder='{\n  "type": "object",\n  "required": ["name"],\n  "properties": {\n    "name": { "type": "string" }\n  }\n}'
+            style="width:100%;font-family:monospace;font-size:11px;resize:vertical">${esc(typeof rb.schema==='object'?JSON.stringify(rb.schema,null,2):rb.schema||'')}</textarea>
+        </div>
+      </details>
+
+      <!-- Responses -->
+      <details open style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#555;padding:4px 0">↩ Responses</summary>
+        <div style="overflow-x:auto">
+          <table style="width:100%;font-size:11px;border-collapse:collapse" class="scalar-responses-table">
+            <thead>
+              <tr style="color:#666;border-bottom:1px solid #ddd">
+                <th style="text-align:left;padding:2px 4px">Code</th>
+                <th style="text-align:left;padding:2px 4px">Description</th>
+                <th style="text-align:left;padding:2px 4px">Schema (JSON)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${responses.map((r, i) => responseRow(r, i)).join('')}
+            </tbody>
+          </table>
+        </div>
+        <button class="red-ui-button scalar-add-resp" style="margin-top:6px;font-size:11px">+ Add response</button>
+      </details>
+
+      <!-- JSON preview / copy -->
+      <details style="margin-bottom:4px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#555;padding:4px 0">🔍 View endpoint JSON config</summary>
+        <div style="position:relative">
+          <button class="red-ui-button scalar-copy-json" style="position:absolute;top:6px;right:6px;font-size:11px;z-index:1">Copy</button>
+          <pre class="scalar-json-preview" style="background:#1e1e1e;color:#d4d4d4;padding:10px;border-radius:4px;
+            font-size:11px;overflow:auto;max-height:250px;margin-top:4px"></pre>
+        </div>
+      </details>
+
+    </div>`;
+  }
+
+  // ── Endpoints tab render ───────────────────────────────────────────────────
+
+  function renderEndpointsList(container) {
+    const filtered = _filterText
+      ? _httpNodes.filter(n =>
+          n.url.toLowerCase().includes(_filterText) ||
+          (n.name||'').toLowerCase().includes(_filterText) ||
+          (n.flowName||'').toLowerCase().includes(_filterText))
+      : _httpNodes;
+
+    let html = '';
+    if (filtered.length === 0) {
+      html = '<div style="color:#888;padding:12px;text-align:center">No http-in nodes found in flows.</div>';
+    } else {
+      filtered.forEach(function (n) {
+        const meta = _endpoints[n.id] || {};
+        const excluded = meta.excluded === true;
+        const isOpen = _expandedNode === n.id;
+        const name = n.name || n.url;
+        html += `
+        <div class="scalar-endpoint-row" data-id="${n.id}" style="border:1px solid #e0e0e0;border-radius:4px;margin-bottom:6px;background:#fff">
+          <div class="scalar-endpoint-header" data-id="${n.id}"
+            style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;
+              ${excluded?'opacity:0.45':''}">
+            <span style="font-size:14px">${isOpen?'▼':'▶'}</span>
+            ${methodBadge(n.method)}
+            <span style="font-family:monospace;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${esc(n.url)}">${esc(n.url)}</span>
+            ${name !== n.url ? `<span style="color:#888;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${esc(name)}">${esc(name)}</span>` : ''}
+            <span style="font-size:10px;color:#aaa;max-width:100px;overflow:hidden;text-overflow:ellipsis" title="${esc(n.flowName||'')}">📋 ${esc(n.flowName||n.flowId||'')}</span>
+            <button class="red-ui-button scalar-toggle-exclude" data-id="${n.id}"
+              style="font-size:11px;padding:1px 8px;margin-left:4px;flex-shrink:0"
+              title="${excluded?'Include in docs':'Exclude from docs'}">
+              ${excluded?'✅ Include':'🚫 Exclude'}
+            </button>
+          </div>
+          ${isOpen && !excluded ? renderEndpointDetail(n.id) : ''}
+        </div>`;
+      });
+    }
+    container.html(html);
+    bindEndpointEvents(container);
+  }
+
+  function bindEndpointEvents(container) {
+    // Toggle expand
+    container.find('.scalar-endpoint-header').on('click', function (e) {
+      if ($(e.target).hasClass('scalar-toggle-exclude') || $(e.target).closest('.scalar-toggle-exclude').length) return;
+      const id = $(this).data('id');
+      _expandedNode = (_expandedNode === id) ? null : id;
+      renderEndpointsList(container);
+    });
+
+    // Toggle exclude
+    container.find('.scalar-toggle-exclude').on('click', function (e) {
+      e.stopPropagation();
+      const id = $(this).data('id');
+      if (!_endpoints[id]) _endpoints[id] = {};
+      _endpoints[id].excluded = !_endpoints[id].excluded;
+      renderEndpointsList(container);
+    });
+
+    // Field changes
+    container.find('.scalar-field').on('change input', function () {
+      collectDetailFields(container);
+      updateJsonPreview(container);
+    });
+
+    // JSON validation on JSON fields
+    container.find('.scalar-json-field, .r-schema').on('input', function () {
+      validateJsonField(this);
+    });
+
+    // Add parameter
+    container.find('.scalar-add-param').on('click', function () {
+      collectDetailFields(container);
+      const id = _expandedNode;
+      if (!id) return;
+      if (!_endpoints[id]) _endpoints[id] = {};
+      if (!_endpoints[id].parameters) _endpoints[id].parameters = [];
+      _endpoints[id].parameters.push(emptyParam());
+      renderEndpointsList(container);
+    });
+
+    // Remove parameter
+    container.find('.scalar-remove-param').on('click', function () {
+      collectDetailFields(container);
+      const idx = parseInt($(this).closest('tr').data('idx'));
+      const id = _expandedNode;
+      if (!id || !_endpoints[id] || !_endpoints[id].parameters) return;
+      _endpoints[id].parameters.splice(idx, 1);
+      renderEndpointsList(container);
+    });
+
+    // Add response
+    container.find('.scalar-add-resp').on('click', function () {
+      collectDetailFields(container);
+      const id = _expandedNode;
+      if (!id) return;
+      if (!_endpoints[id]) _endpoints[id] = {};
+      if (!_endpoints[id].responses) _endpoints[id].responses = [];
+      _endpoints[id].responses.push(emptyResponse());
+      renderEndpointsList(container);
+    });
+
+    // Remove response
+    container.find('.scalar-remove-resp').on('click', function () {
+      collectDetailFields(container);
+      const idx = parseInt($(this).closest('tr').data('idx'));
+      const id = _expandedNode;
+      if (!id || !_endpoints[id] || !_endpoints[id].responses) return;
+      _endpoints[id].responses.splice(idx, 1);
+      renderEndpointsList(container);
+    });
+
+    // JSON preview copy
+    container.find('.scalar-copy-json').on('click', function () {
+      const pre = $(this).siblings('.scalar-json-preview');
+      const text = pre.text();
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text);
+        RED.notify('Copied to clipboard', 'success');
+      }
+    });
+
+    updateJsonPreview(container);
+  }
+
+  function updateJsonPreview(container) {
+    if (!_expandedNode) return;
+    collectDetailFields(container);
+    const data = _endpoints[_expandedNode] || {};
+    container.find('.scalar-json-preview').text(JSON.stringify(data, null, 2));
+  }
+
+  function collectDetailFields(container) {
+    if (!_expandedNode) return;
+    const id = _expandedNode;
+    const detail = container.find(`.scalar-endpoint-detail[data-id="${id}"]`);
+    if (!detail.length) return;
+
+    if (!_endpoints[id]) _endpoints[id] = {};
+    const meta = _endpoints[id];
+
+    // Simple scalar fields
+    detail.find('.scalar-field').each(function () {
+      const field = $(this).data('field');
+      if (!field) return;
+      let val;
+      if ($(this).attr('type') === 'checkbox') {
+        val = $(this).is(':checked');
+      } else {
+        val = $(this).val();
+      }
+      if (field.includes('.')) {
+        const parts = field.split('.');
+        if (!meta[parts[0]]) meta[parts[0]] = {};
+        meta[parts[0]][parts[1]] = val;
+      } else if (field === 'tags') {
+        meta.tags = val ? val.split(',').map(t => t.trim()).filter(Boolean) : [];
+      } else {
+        meta[field] = val;
+      }
+    });
+
+    // Parse requestBody schema JSON
+    if (meta.requestBody && meta.requestBody.schema && typeof meta.requestBody.schema === 'string') {
+      try {
+        meta.requestBody.schema = JSON.parse(meta.requestBody.schema);
+      } catch (e) { /* keep as string until valid */ }
+    }
+
+    // Parameters from table
+    const params = [];
+    detail.find('.scalar-param-row').each(function () {
+      params.push({
+        in:          $(this).find('.p-in').val(),
+        name:        $(this).find('.p-name').val(),
+        type:        $(this).find('.p-type').val(),
+        required:    $(this).find('.p-req').is(':checked'),
+        description: $(this).find('.p-desc').val(),
+        example:     $(this).find('.p-example').val()
+      });
+    });
+    meta.parameters = params;
+
+    // Responses from table
+    const responses = [];
+    detail.find('.scalar-resp-row').each(function () {
+      let schema = $(this).find('.r-schema').val();
+      try { schema = JSON.parse(schema); } catch (e) { /* keep as string or empty */ }
+      responses.push({
+        code:        parseInt($(this).find('.r-code').val()) || 200,
+        description: $(this).find('.r-desc').val(),
+        schema:      schema || undefined
+      });
+    });
+    meta.responses = responses;
+  }
+
+  // ── Default Routes tab render ──────────────────────────────────────────────
+
+  function renderDefaultRoutes(container, currentRoutes) {
+    const routes = Object.assign({}, DEFAULT_ROUTES, currentRoutes);
+
+    const groups = {};
+    ROUTE_META.forEach(function (r) {
+      if (!groups[r.group]) groups[r.group] = [];
+      groups[r.group].push(r);
+    });
+
+    let html = `
+    <div style="margin-bottom:10px">
+      <span style="font-size:12px;color:#666;margin-right:6px">Quick presets:</span>
+      <button class="red-ui-button scalar-preset" data-preset="base" style="margin-right:4px;font-size:11px">🟢 Base</button>
+      <button class="red-ui-button scalar-preset" data-preset="runtime" style="margin-right:4px;font-size:11px">🔵 Runtime</button>
+      <button class="red-ui-button scalar-preset" data-preset="flow_debug" style="margin-right:4px;font-size:11px">🟡 Flow Debug</button>
+      <button class="red-ui-button scalar-preset" data-preset="diagnostics" style="margin-right:4px;font-size:11px">🟠 Diagnostics</button>
+      <button class="red-ui-button scalar-preset" data-preset="dev_tools" style="margin-right:4px;font-size:11px">🔴 Dev Tools</button>
+      <button class="red-ui-button scalar-preset" data-preset="all" style="margin-right:4px;font-size:11px">✅ All</button>
+      <button class="red-ui-button scalar-preset" data-preset="none" style="font-size:11px">⬜ None</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">`;
+
+    Object.entries(groups).forEach(function ([groupName, items]) {
+      html += `<tr><td colspan="4" style="padding:8px 4px 4px;font-weight:700;color:#555;border-bottom:2px solid #e0e0e0">${esc(groupName)}</td></tr>`;
+      items.forEach(function (r) {
+        html += `
+        <tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:5px 6px;width:30px">
+            <input type="checkbox" class="scalar-route-toggle" data-key="${r.key}" ${routes[r.key]?'checked':''}/>
+          </td>
+          <td style="padding:5px 4px;width:55px">${methodBadge(r.method)}</td>
+          <td style="padding:5px 4px;font-family:monospace;color:#333;width:180px">${esc(r.path)}</td>
+          <td style="padding:5px 4px;color:#666">${esc(r.desc)}</td>
+        </tr>`;
+      });
+    });
+
+    html += '</table>';
+    container.html(html);
+
+    // Preset buttons
+    container.find('.scalar-preset').on('click', function () {
+      const preset = $(this).data('preset');
+      if (preset === 'all') {
+        container.find('.scalar-route-toggle').prop('checked', true);
+      } else if (preset === 'none') {
+        container.find('.scalar-route-toggle').prop('checked', false);
+      } else if (PRESETS[preset]) {
+        PRESETS[preset].forEach(function (key) {
+          container.find(`.scalar-route-toggle[data-key="${key}"]`).prop('checked', true);
+        });
+      }
+    });
+  }
+
+  function collectDefaultRoutes(container) {
+    const routes = {};
+    container.find('.scalar-route-toggle').each(function () {
+      routes[$(this).data('key')] = $(this).is(':checked');
+    });
+    return routes;
+  }
+
+  // ── Node registration ──────────────────────────────────────────────────────
+
+  RED.nodes.registerType('scalar-docs', {
+    category: 'config',
+    color: '#8b5cf6',
+    icon: 'font-awesome/fa-book',
+    hasUsers: false,
+    label: function () {
+      const base = this.title || 'Scalar API Docs';
+      try {
+        let count = 0;
+        RED.nodes.eachNode(function (n) {
+          if (n.type === 'http in' && n.scalarDocs === this.id) count++;
+        }.bind(this));
+        if (count > 0) return base + ' (' + count + ')';
+      } catch(e) {}
+      return base;
+    },
+
+    defaults: {
+      title:            { value: 'Node-RED API' },
+      version:          { value: '1.0.0' },
+      description:      { value: '' },
+      docsPath:         { value: '/api-docs' },
+      theme:            { value: 'default' },
+      baseUrl:          { value: '' },
+      bearerToken:      { value: '' },
+      endpoints:        { value: {} },
+      defaultRoutes:    { value: {} },
+      envWhitelist:     { value: [] },
+      contextWhitelist: { value: [] }
+    },
+
+    oneditprepare: function () {
+      const node = this;
+
+      _endpoints    = $.extend(true, {}, node.endpoints || {});
+      _expandedNode = null;
+      _filterText   = '';
+
+      // ── Tab Switching ───────────────────────────────────────────────────────
+      $('.scalar-tab-btn').off('click.scalar').on('click.scalar', function(e) {
+        e.preventDefault();
+        $('.scalar-tab-btn').css({ color:'#666', borderBottom:'none' });
+        $(this).css({ color:'#8b5cf6', borderBottom:'2px solid #8b5cf6', marginBottom:'-2px' });
+        $('.scalar-tab-pane').hide();
+        $('#' + $(this).data('tab')).show();
+      });
+
+      // ── Tab: General ────────────────────────────────────────────────────────
+      $('#node-input-title').val(node.title || 'Node-RED API');
+      $('#node-input-version').val(node.version || '1.0.0');
+      $('#node-input-description').val(node.description || '');
+      $('#node-input-docsPath').val(node.docsPath || '/api-docs');
+      $('#node-input-baseUrl').val(node.baseUrl || '');
+      $('#node-input-bearerToken').val(node.bearerToken || '');
+      $('#node-input-theme').val(node.theme || 'default');
+
+      $('#node-input-docsPath').on('input', function() {
+        var p = $(this).val() || '/api-docs';
+        $('#scalar-preview-path').text(p);
+        $('#scalar-preview-spec').text(p.replace(/\/$/, '') + '/openapi.json');
+      });
+
+      // ── Tab: Endpoints ─────────────────────────────────────────────────────
+      const endpointContainer = $('#scalar-endpoints-container');
+
+      $('#scalar-reload-nodes').on('click', function () {
+        loadHttpNodes(function () { renderEndpointsList(endpointContainer); });
+      });
+
+      $('#scalar-filter').on('input', function () {
+        _filterText = $(this).val().toLowerCase();
+        renderEndpointsList(endpointContainer);
+      });
+
+      $('#scalar-cleanup-orphans').on('click', function () {
+        $.ajax({
+          url: 'scalar-docs/cleanup-orphans',
+          type: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({ endpoints: _endpoints }),
+          success: function (res) {
+            if (res.orphans && res.orphans.length > 0) {
+              res.orphans.forEach(function (id) { delete _endpoints[id]; });
+              RED.notify(`Removed ${res.orphans.length} orphaned config(s)`, 'success');
+              renderEndpointsList(endpointContainer);
+            } else {
+              RED.notify('No orphaned configs found', 'success');
+            }
+          }
+        });
+      });
+
+      loadHttpNodes(function () { renderEndpointsList(endpointContainer); });
+
+      // ── Tab: Default Routes ────────────────────────────────────────────────
+      const defaultContainer = $('#scalar-default-routes-container');
+      renderDefaultRoutes(defaultContainer, node.defaultRoutes || {});
+    },
+
+    oneditsave: function () {
+      this.title       = $('#node-input-title').val();
+      this.version     = $('#node-input-version').val();
+      this.description = $('#node-input-description').val();
+      this.docsPath    = $('#node-input-docsPath').val();
+      this.baseUrl     = $('#node-input-baseUrl').val();
+      this.bearerToken = $('#node-input-bearerToken').val();
+      this.theme       = $('#node-input-theme').val();
+
+      if (_expandedNode) {
+        collectDetailFields($('#scalar-endpoints-container'));
+      }
+      this.endpoints = _endpoints;
+
+      this.defaultRoutes = collectDefaultRoutes($('#scalar-default-routes-container'));
+    }
+  });
+
+  // ── Extension: add "scalar-docs" config selector to http-in edit panel ──────────
+
+  function injectScalarButton(httpInNode) {
+    var checkCount = 0;
+    var interval = setInterval(function() {
+      const form = $('#dialog-form');
+      if (form.length) {
+        clearInterval(interval);
+        if (form.find('.scalar-docs-row').length) return;
+
+        const scalarNodes = [];
+        if (RED.nodes.eachConfig) {
+          RED.nodes.eachConfig(function(n) {
+            if (n.type === 'scalar-docs') scalarNodes.push(n);
+          });
+        } else {
+          RED.nodes.eachNode(function(n) {
+            if (n.type === 'scalar-docs') scalarNodes.push(n);
+          });
+        }
+
+        const currentScalarId = httpInNode.scalarDocs || '';
+        let optionsHtml = '<option value="">-- Nessuno --</option>';
+        scalarNodes.forEach(function(n) {
+          const sel = currentScalarId === n.id ? ' selected' : '';
+          optionsHtml += `<option value="${n.id}"${sel}>${esc(n.name || n.title || n.id)}</option>`;
+        });
+
+        const row = $(`
+          <div class="form-row scalar-docs-row" style="margin-top:12px; padding-top:12px; border-top:1px solid #ccc;">
+            <label for="node-input-scalarDocs" style="width:100px;"><i class="fa fa-book"></i> Scalar Docs</label>
+            <div style="display:inline-block; position:relative; width:calc(100% - 105px); height:34px;">
+              <div style="position:absolute; left:0; right:82px;">
+                <select id="node-input-scalarDocs" style="width:100%;">
+                  ${optionsHtml}
+                </select>
+              </div>
+              <a id="node-input-scalar-docs-add" class="red-ui-button" style="position:absolute; right:42px; top:0; width:34px; text-align:center;" title="Add new Scalar Docs">
+                <i class="fa fa-plus"></i>
+              </a>
+              <a id="node-input-scalar-docs-edit" class="red-ui-button" style="position:absolute; right:0; top:0; width:36px; text-align:center;" title="Edit Scalar Docs">
+                <i class="fa fa-pencil"></i>
+              </a>
+            </div>
+          </div>
+        `);
+
+        row.find('#node-input-scalar-docs-add').on('click', function(e) {
+          e.preventDefault();
+          try {
+            RED.editor.editConfig('', 'scalar-docs', '_ADD_');
+          } catch(err) {
+            console.error(err);
+          }
+        });
+
+        row.find('#node-input-scalar-docs-edit').on('click', function(e) {
+          e.preventDefault();
+          const configId = $('#node-input-scalarDocs').val();
+          if (!configId) return;
+
+          _expandedNode = httpInNode.id;
+
+          const configNode = RED.nodes.node(configId);
+          if (configNode) {
+            try {
+              RED.editor.editConfig('', 'scalar-docs', configId);
+            } catch(err) {
+              RED.editor.edit(configNode);
+            }
+            setTimeout(function() {
+              $('.scalar-tab-btn[data-tab="scalar-tab-endpoints"]').click();
+            }, 400);
+          }
+        });
+
+        // Save the selected scalar-docs ID back to the http-in node when Done is clicked
+        $('#node-dialog-ok').off('click.scalarSave').on('click.scalarSave', function () {
+          $('#node-dialog-ok').off('click.scalarSave');
+          httpInNode.scalarDocs = $('#node-input-scalarDocs').val() || '';
+          try { RED.nodes.dirty(true); } catch(e) {}
+        });
+
+        form.append(row);
+      }
+      if (++checkCount > 20) clearInterval(interval);
+    }, 100);
+  }
+
+  // Hook globally into editor open using RED.editor.edit
+  if (!window.__scalarDocsInjected) {
+    window.__scalarDocsInjected = true;
+    if (typeof RED !== 'undefined' && RED.editor && RED.editor.edit) {
+      var origEdit = RED.editor.edit;
+      RED.editor.edit = function(node) {
+        if (origEdit) {
+          try { origEdit.apply(this, arguments); } catch(e) { console.error(e); }
+        }
+        if (node && node.type === 'http in') {
+          injectScalarButton(node);
+        }
+      };
+    }
+  }
+
+})();
+</script>
+
+<!-- ── Edit dialog template ─────────────────────────────────────────────── -->
+<script type="text/html" data-template-name="scalar-docs">
+  <div style="padding:0">
+
+    <!-- Tab bar -->
+    <div style="display:flex;flex-wrap:wrap;border-bottom:2px solid #e0e0e0;background:#fafafa">
+      <button class="scalar-tab-btn" data-tab="scalar-tab-general"
+        style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:#8b5cf6;border-bottom:2px solid #8b5cf6;margin-bottom:-2px">
+        ⚙️ General
+      </button>
+      <button class="scalar-tab-btn" data-tab="scalar-tab-endpoints"
+        style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:#666">
+        🔀 Endpoints
+      </button>
+      <button class="scalar-tab-btn" data-tab="scalar-tab-routes"
+        style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:#666">
+        🚦 Default Routes
+      </button>
+    </div>
+
+    <!-- ── Tab: General ──────────────────────────────────────────────────── -->
+    <div id="scalar-tab-general" class="scalar-tab-pane" style="padding:16px;display:block">
+
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="flex:2">
+          <span>API Title</span>
+          <input type="text" id="node-input-title" placeholder="Node-RED API" style="width:100%"/>
+        </label>
+        <label style="flex:1">
+          <span>Version</span>
+          <input type="text" id="node-input-version" placeholder="1.0.0" style="width:100%"/>
+        </label>
+      </div>
+
+      <label style="display:block;margin-bottom:12px">
+        <span>Description</span>
+        <textarea id="node-input-description" rows="3" placeholder="API description (Markdown supported)"
+          style="width:100%;resize:vertical"></textarea>
+      </label>
+
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="flex:1">
+          <span>UI Path</span>
+          <input type="text" id="node-input-docsPath" placeholder="/api-docs" style="width:100%"/>
+        </label>
+        <label style="flex:2">
+          <span>Base URL</span>
+          <input type="text" id="node-input-baseUrl" placeholder="http://localhost:1880" style="width:100%"/>
+        </label>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="flex:1">
+          <span>Scalar Theme</span>
+          <select id="node-input-theme" style="width:100%">
+            <option value="default">Default</option>
+            <option value="purple">Purple</option>
+            <option value="bluePlanet">Blue Planet</option>
+            <option value="deepSpace">Deep Space</option>
+            <option value="saturn">Saturn</option>
+            <option value="kepler">Kepler</option>
+            <option value="mars">Mars</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label style="flex:2">
+          <span>🔒 Bearer Token (protects UI &amp; spec)</span>
+          <input type="password" id="node-input-bearerToken" placeholder="Leave empty to disable auth"
+            style="width:100%"/>
+        </label>
+      </div>
+
+      <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;padding:10px;font-size:12px;color:#3730a3">
+        📖 Docs UI will be available at <strong id="scalar-preview-path">/api-docs</strong><br/>
+        📄 OpenAPI spec at <strong id="scalar-preview-spec">/api-docs/openapi.json</strong>
+      </div>
+    </div>
+
+    <!-- ── Tab: Endpoints ────────────────────────────────────────────────── -->
+    <div id="scalar-tab-endpoints" class="scalar-tab-pane" style="padding:16px;display:none">
+
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input id="scalar-filter" type="text" placeholder="🔍 Filter by path, name or flow..."
+          style="flex:1;min-width:180px"/>
+        <button class="red-ui-button" id="scalar-reload-nodes" title="Reload http-in nodes from flows"
+          style="font-size:12px">🔄 Reload</button>
+        <button class="red-ui-button" id="scalar-cleanup-orphans" title="Remove configs for nodes that no longer exist"
+          style="font-size:12px;color:#e57373">🧹 Cleanup orphans</button>
+      </div>
+
+      <div id="scalar-endpoints-container" style="max-height:480px;overflow-y:auto;padding-right:4px"></div>
+    </div>
+
+    <!-- ── Tab: Default Routes ───────────────────────────────────────────── -->
+    <div id="scalar-tab-routes" class="scalar-tab-pane" style="padding:16px;display:none">
+      <div id="scalar-default-routes-container" style="max-height:520px;overflow-y:auto"></div>
+    </div>
+
+  </div>
+
+  <!-- Tab switching logic moved to oneditprepare -->
+</script>
+
+<!-- ── Help panel ────────────────────────────────────────────────────────── -->
+<script type="text/html" data-help-name="scalar-docs">
+  <p>Generates and serves a <a href="https://scalar.com" target="_blank">Scalar</a> API documentation UI
+  for all <code>http in</code> nodes found in your Node-RED flows.</p>
+
+  <h3>Usage</h3>
+  <p>Add this config node to any flow. The Scalar UI will be available at the configured path
+  (default <code>/api-docs</code>).</p>
+
+  <h3>Tabs</h3>
+  <dl>
+    <dt>⚙️ General</dt>
+    <dd>Title, version, UI path, theme and optional Bearer token to protect the documentation.</dd>
+    <dt>🔀 Endpoints</dt>
+    <dd>Lists all <code>http in</code> nodes found in flows. You can expand each one to add summary,
+    description, parameters, request body and response definitions. Use <strong>🧹 Cleanup orphans</strong>
+    to remove configs for nodes that have been deleted.</dd>
+    <dt>🚦 Default Routes</dt>
+    <dd>Built-in system endpoints (health, info, metrics, etc.) that can be toggled individually or
+    enabled in groups via quick presets.</dd>
+  </dl>
+
+  <h3>http-in button</h3>
+  <p>When editing any <code>http in</code> node a <strong>📄 Scalar </strong> button appears in the
+  toolbar. Clicking it opens this config node with the endpoint already expanded.</p>
+
+  <h3>Admin API</h3>
+  <dl>
+    <dt><code>GET /scalar-docs/http-nodes</code></dt>
+    <dd>Returns all <code>http in</code> nodes currently in flows (requires <code>flows.read</code> permission).</dd>
+    <dt><code>POST /scalar-docs/cleanup-orphans</code></dt>
+    <dd>Finds and returns IDs of saved endpoint configs that no longer have a matching node (requires <code>flows.write</code> permission).</dd>
+  </dl>
+</script>

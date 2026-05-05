@@ -1,0 +1,41 @@
+{
+  "name": "node-red-contrib-scalar-docs",
+  "version": "0.9.0",
+  "description": "Serve a Scalar API documentation UI for all http-in nodes in Node-RED flows",
+  "main": "index.js",
+  "keywords": [
+    "node-red",
+    "scalar",
+    "openapi",
+    "swagger",
+    "api-docs",
+    "documentation"
+  ],
+  "author": "Davide Travaglini",
+  "license": "MIT",
+  "node-red": {
+    "version": ">=3.0.0",
+    "nodes": {
+      "scalar-docs": "nodes/scalar-docs.js"
+    }
+  },
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint nodes/ lib/ index.js"
+  },
+  "dependencies": {
+    "express": ">=4.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}
