@@ -6,7 +6,7 @@ Auto-generates and serves a [Scalar](https://scalar.com) API documentation UI fo
 
 - Auto-discovery of all `http in` nodes across all flows
 - Per-endpoint metadata: summary, description, tags, parameters, request body, response schemas
-- Built-in system endpoints (`/health`, `/info`, `/metrics`, `/ping` and more), each individually toggleable
+- Built-in system endpoints served under `/api/scalar/` (`/api/scalar/health`, `/api/scalar/ping`, etc.), each individually toggleable
 - Modern interactive UI with multiple Scalar themes
 - Optional Bearer token to protect the docs and the OpenAPI spec
 - Inline button in every `http in` editor to jump directly to the endpoint config
@@ -55,49 +55,51 @@ The **Cleanup orphans** button removes saved configs for nodes that no longer ex
 
 Toggle built-in diagnostic endpoints individually or use the preset buttons to enable groups.
 
+All default endpoints are served under the `/api/scalar` root (e.g. `/api/scalar/health`) to keep the main application root free. The prefix can be changed with the `defaultRoutesPrefix` option (default: `/api/scalar`).
+
 **Base**
 
 | Endpoint | Description |
 |---|---|
-| `GET /ping` | Returns `pong` — minimal liveness check |
-| `GET /health` | Status, uptime and current timestamp |
-| `GET /health/live` | Liveness probe, always 200 if the process is alive |
-| `GET /health/ready` | Readiness probe, returns 200 only after flows have been deployed |
-| `GET /info` | Node-RED version, Node.js version, OS, hostname, uptime and flow count |
+| `GET /api/scalar/ping` | Returns `pong` — minimal liveness check |
+| `GET /api/scalar/health` | Status, uptime and current timestamp |
+| `GET /api/scalar/health/live` | Liveness probe, always 200 if the process is alive |
+| `GET /api/scalar/health/ready` | Readiness probe, returns 200 only after flows have been deployed |
+| `GET /api/scalar/info` | Node-RED version, Node.js version, OS, hostname, uptime and flow count |
 
 **Runtime**
 
 | Endpoint | Description |
 |---|---|
-| `GET /metrics` | CPU usage, memory, V8 heap and event loop stats |
-| `GET /env` | Environment variables filtered by a configurable whitelist (`NR_*` by default) |
-| `GET /context` | Node-RED global context, filtered by a configurable whitelist |
+| `GET /api/scalar/metrics` | CPU usage, memory, V8 heap and event loop stats |
+| `GET /api/scalar/env` | Environment variables filtered by a configurable whitelist (`NR_*` by default) |
+| `GET /api/scalar/context` | Node-RED global context, filtered by a configurable whitelist |
 
 **Flow Debug**
 
 | Endpoint | Description |
 |---|---|
-| `GET /flows` | Active flows with their ID and label |
-| `GET /flows/count` | Total flow count and node breakdown by type |
-| `GET /nodes` | All installed node type names |
-| `GET /nodes/http` | All `http in` nodes currently detected in flows |
+| `GET /api/scalar/flows` | Active flows with their ID and label |
+| `GET /api/scalar/flows/count` | Total flow count and node breakdown by type |
+| `GET /api/scalar/nodes` | All installed node type names |
+| `GET /api/scalar/nodes/http` | All `http in` nodes currently detected in flows |
 
 **Diagnostics**
 
 | Endpoint | Description |
 |---|---|
-| `GET /diagnostics` | Single aggregated response combining health, metrics and info |
-| `GET /logs` | Last N log entries from the in-memory ring buffer (`?limit=100`) |
-| `GET /logs/errors` | Same as `/logs` but filtered to error-level entries only |
+| `GET /api/scalar/diagnostics` | Single aggregated response combining health, metrics and info |
+| `GET /api/scalar/logs` | Last N log entries from the in-memory ring buffer (`?limit=100`) |
+| `GET /api/scalar/logs/errors` | Same as `/api/scalar/logs` but filtered to error-level entries only |
 
 **Dev Tools**
 
 | Endpoint | Description |
 |---|---|
-| `POST /echo` | Returns the received request body — useful for testing HTTP clients |
-| `GET /auth/test` | Verifies the configured Bearer token and returns its validity |
-| `GET /dependencies` | Lists installed npm packages with their current versions |
-| `GET /dependencies/outdated` | Runs `npm outdated` and returns packages that have available updates |
+| `POST /api/scalar/echo` | Returns the received request body — useful for testing HTTP clients |
+| `GET /api/scalar/auth/test` | Verifies the configured Bearer token and returns its validity |
+| `GET /api/scalar/dependencies` | Lists installed npm packages with their current versions |
+| `GET /api/scalar/dependencies/outdated` | Runs `npm outdated` and returns packages that have available updates |
 
 ## http-in integration
 

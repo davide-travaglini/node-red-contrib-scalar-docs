@@ -71,7 +71,8 @@ module.exports = function (RED) {
     registeredPaths.add(uiPath);
 
     const defaultRouter = buildDefaultRouter(RED, node);
-    RED.httpNode.use('/', defaultRouter);
+    const defaultPrefix = node.defaultRoutesPrefix || '/api/scalar';
+    RED.httpNode.use(defaultPrefix, defaultRouter);
 
     node.log(`Scalar docs available at ${uiPath}`);
   }
