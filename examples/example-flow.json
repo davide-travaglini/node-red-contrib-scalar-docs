@@ -1,0 +1,293 @@
+[
+  {
+    "id": "scalar-example-tab",
+    "type": "tab",
+    "label": "Scalar Docs Example",
+    "disabled": false,
+    "info": "Example flow for node-red-contrib-scalar-docs.\nOpen http://localhost:1880/api-docs after deploying."
+  },
+  {
+    "id": "scalar-docs-config",
+    "type": "scalar-docs",
+    "name": "Example API",
+    "title": "Node-RED Example API",
+    "version": "1.0.0",
+    "description": "A sample REST API documenting user management endpoints.\nGenerated with **node-red-contrib-scalar-docs**.",
+    "docsPath": "/api-docs",
+    "baseUrl": "",
+    "theme": "default",
+    "bearerToken": "",
+    "endpoints": {
+      "scalar-http-get-users": {
+        "summary": "List all users",
+        "operationId": "listUsers",
+        "description": "Returns a list of users. Use the `limit` query parameter to control the number of results.",
+        "tags": ["Users"],
+        "deprecated": false,
+        "exclude": false,
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of users to return",
+            "example": "10"
+          }
+        ],
+        "requestBody": null,
+        "responses": [
+          {
+            "code": 200,
+            "description": "A list of users",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id":    { "type": "integer", "example": 1 },
+                  "name":  { "type": "string",  "example": "Alice Smith" },
+                  "email": { "type": "string",  "format": "email", "example": "alice@example.com" }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "scalar-http-get-user": {
+        "summary": "Get user by ID",
+        "operationId": "getUserById",
+        "description": "Returns a single user identified by their numeric ID.",
+        "tags": ["Users"],
+        "deprecated": false,
+        "exclude": false,
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "type": "integer",
+            "required": true,
+            "description": "Numeric user ID",
+            "example": "1"
+          }
+        ],
+        "requestBody": null,
+        "responses": [
+          {
+            "code": 200,
+            "description": "User found",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id":    { "type": "integer", "example": 1 },
+                "name":  { "type": "string",  "example": "Alice Smith" },
+                "email": { "type": "string",  "format": "email", "example": "alice@example.com" }
+              }
+            }
+          },
+          {
+            "code": 404,
+            "description": "User not found",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": { "type": "string", "example": "User not found" }
+              }
+            }
+          }
+        ]
+      },
+      "scalar-http-post-user": {
+        "summary": "Create a new user",
+        "operationId": "createUser",
+        "description": "Creates a new user. Both `name` and `email` are required.",
+        "tags": ["Users"],
+        "deprecated": false,
+        "exclude": false,
+        "parameters": [],
+        "requestBody": {
+          "contentType": "application/json",
+          "description": "User data to create",
+          "schema": {
+            "type": "object",
+            "required": ["name", "email"],
+            "properties": {
+              "name":  { "type": "string",  "example": "John Doe" },
+              "email": { "type": "string",  "format": "email", "example": "john@example.com" }
+            }
+          }
+        },
+        "responses": [
+          {
+            "code": 201,
+            "description": "User created successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id":    { "type": "integer", "example": 42 },
+                "name":  { "type": "string",  "example": "John Doe" },
+                "email": { "type": "string",  "format": "email", "example": "john@example.com" }
+              }
+            }
+          },
+          {
+            "code": 400,
+            "description": "Validation error — name or email missing",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": { "type": "string", "example": "name and email are required" }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "defaultRoutes": {
+      "ping":                   true,
+      "health":                 true,
+      "health_live":            true,
+      "health_ready":           false,
+      "info":                   true,
+      "metrics":                false,
+      "env":                    false,
+      "context":                false,
+      "flows":                  false,
+      "flows_count":            false,
+      "nodes":                  false,
+      "nodes_http":             false,
+      "diagnostics":            false,
+      "logs":                   false,
+      "logs_errors":            false,
+      "echo":                   true,
+      "auth_test":              false,
+      "dependencies":           false,
+      "dependencies_outdated":  false
+    },
+    "envWhitelist": [],
+    "contextWhitelist": []
+  },
+
+  {
+    "id": "scalar-http-get-users",
+    "type": "http in",
+    "z": "scalar-example-tab",
+    "name": "GET /api/users",
+    "url": "/api/users",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "scalarDocs": "scalar-docs-config",
+    "x": 130,
+    "y": 120,
+    "wires": [["scalar-fn-get-users"]]
+  },
+  {
+    "id": "scalar-fn-get-users",
+    "type": "function",
+    "z": "scalar-example-tab",
+    "name": "List Users",
+    "func": "const users = [\n    { id: 1, name: 'Alice Smith',  email: 'alice@example.com' },\n    { id: 2, name: 'Bob Jones',   email: 'bob@example.com'   },\n    { id: 3, name: 'Carol White', email: 'carol@example.com' }\n];\nconst limit = parseInt(msg.req.query.limit) || users.length;\nmsg.payload    = users.slice(0, limit);\nmsg.statusCode = 200;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 350,
+    "y": 120,
+    "wires": [["scalar-resp-get-users"]]
+  },
+  {
+    "id": "scalar-resp-get-users",
+    "type": "http response",
+    "z": "scalar-example-tab",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 540,
+    "y": 120,
+    "wires": []
+  },
+
+  {
+    "id": "scalar-http-get-user",
+    "type": "http in",
+    "z": "scalar-example-tab",
+    "name": "GET /api/users/:id",
+    "url": "/api/users/:id",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "scalarDocs": "scalar-docs-config",
+    "x": 130,
+    "y": 240,
+    "wires": [["scalar-fn-get-user"]]
+  },
+  {
+    "id": "scalar-fn-get-user",
+    "type": "function",
+    "z": "scalar-example-tab",
+    "name": "Get User",
+    "func": "const db = {\n    1: { id: 1, name: 'Alice Smith',  email: 'alice@example.com' },\n    2: { id: 2, name: 'Bob Jones',   email: 'bob@example.com'   },\n    3: { id: 3, name: 'Carol White', email: 'carol@example.com' }\n};\nconst id = parseInt(msg.req.params.id);\nif (db[id]) {\n    msg.payload    = db[id];\n    msg.statusCode = 200;\n} else {\n    msg.payload    = { error: 'User not found' };\n    msg.statusCode = 404;\n}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 350,
+    "y": 240,
+    "wires": [["scalar-resp-get-user"]]
+  },
+  {
+    "id": "scalar-resp-get-user",
+    "type": "http response",
+    "z": "scalar-example-tab",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 540,
+    "y": 240,
+    "wires": []
+  },
+
+  {
+    "id": "scalar-http-post-user",
+    "type": "http in",
+    "z": "scalar-example-tab",
+    "name": "POST /api/users",
+    "url": "/api/users",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "scalarDocs": "scalar-docs-config",
+    "x": 130,
+    "y": 360,
+    "wires": [["scalar-fn-post-user"]]
+  },
+  {
+    "id": "scalar-fn-post-user",
+    "type": "function",
+    "z": "scalar-example-tab",
+    "name": "Create User",
+    "func": "const body = msg.payload || {};\nif (!body.name || !body.email) {\n    msg.payload    = { error: 'name and email are required' };\n    msg.statusCode = 400;\n    return msg;\n}\nmsg.payload = {\n    id:    Math.floor(Math.random() * 1000) + 10,\n    name:  body.name,\n    email: body.email\n};\nmsg.statusCode = 201;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 350,
+    "y": 360,
+    "wires": [["scalar-resp-post-user"]]
+  },
+  {
+    "id": "scalar-resp-post-user",
+    "type": "http response",
+    "z": "scalar-example-tab",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 540,
+    "y": 360,
+    "wires": []
+  }
+]
