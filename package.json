@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-scalar-docs",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Serve a Scalar API documentation UI for all http-in nodes in Node-RED flows",
   "main": "index.js",
   "keywords": [
@@ -39,7 +39,7 @@
     "type": "git",
     "url": "https://github.com/davide-travaglini/node-red-contrib-scalar-docs.git"
   },
-    "homepage": "https://github.com/davide-travaglini/node-red-contrib-scalar-docs#readme",
+  "homepage": "https://github.com/davide-travaglini/node-red-contrib-scalar-docs#readme",
   "bugs": {
     "url": "https://github.com/davide-travaglini/node-red-contrib-scalar-docs/issues"
   }
