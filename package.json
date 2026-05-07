@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-scalar-docs",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Serve a Scalar API documentation UI for all http-in nodes in Node-RED flows",
   "main": "index.js",
   "keywords": [
