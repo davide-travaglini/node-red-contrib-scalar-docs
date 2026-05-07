@@ -25,7 +25,8 @@
     "lint": "eslint nodes/ lib/ index.js"
   },
   "dependencies": {
-    "express": ">=4.0.0"
+    "express": ">=4.0.0",
+    "@scalar/api-reference": ">=1.0.0"
   },
   "devDependencies": {
     "jest": "^29.0.0",

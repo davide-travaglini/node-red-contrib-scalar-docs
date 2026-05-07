@@ -1,8 +1,37 @@
 'use strict';
 
+const path = require('path');
+const fs   = require('fs');
+
 const { buildOpenApiSpec } = require('../lib/openapi-builder');
 const { buildDefaultRouter, hookLogger } = require('../lib/default-endpoints');
 const { scanHttpInNodes, getFlowNames, findOrphanedConfigs } = require('../lib/flow-scanner');
+
+// Resolve the Scalar browser bundle from the local npm package.
+// Falls back to CDN if the package is not installed or the file cannot be found.
+const SCALAR_CDN         = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference';
+const SCALAR_LOCAL_ROUTE = '/scalar-assets/api-reference.js';
+
+function resolveScalarBundle() {
+  try {
+    const pkgJsonPath = require.resolve('@scalar/api-reference/package.json');
+    const pkgDir = path.dirname(pkgJsonPath);
+    const pkg    = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    for (const field of ['unpkg', 'browser', 'module', 'main']) {
+      if (pkg[field] && typeof pkg[field] === 'string') {
+        const candidate = path.join(pkgDir, pkg[field]);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+    for (const rel of ['dist/browser/standalone.js', 'dist/index.js']) {
+      const candidate = path.join(pkgDir, rel);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  } catch (e) { /* package not installed — will use CDN */ }
+  return null;
+}
+
+const SCALAR_BUNDLE = resolveScalarBundle();
 
 module.exports = function (RED) {
 
@@ -43,6 +72,17 @@ module.exports = function (RED) {
     const docsPath  = node.docsPath.replace(/\/$/, '');
     const specPath  = docsPath + '/openapi.json';
     const uiPath    = docsPath;
+
+    // Serve local Scalar bundle once — skip if already registered by another instance
+    if (SCALAR_BUNDLE) {
+      const alreadyRegistered = RED.httpNode._router &&
+        RED.httpNode._router.stack.some(l => l.route && l.route.path === SCALAR_LOCAL_ROUTE);
+      if (!alreadyRegistered) {
+        RED.httpNode.get(SCALAR_LOCAL_ROUTE, function (req, res) {
+          res.sendFile(SCALAR_BUNDLE);
+        });
+      }
+    }
 
     function authMiddleware(req, res, next) {
       if (!node.bearerToken) return next();
@@ -123,7 +163,8 @@ module.exports = function (RED) {
       mars:       'mars',
       none:       'none'
     };
-    const theme = themeMap[node.theme] || 'default';
+    const theme     = themeMap[node.theme] || 'default';
+    const scalarSrc = SCALAR_BUNDLE ? SCALAR_LOCAL_ROUTE : SCALAR_CDN;
 
     return `<!doctype html>
 <html>
@@ -142,7 +183,7 @@ module.exports = function (RED) {
         defaultHttpClient: { targetKey: 'javascript', clientKey: 'fetch' }
       }))}">
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script src="${escHtml(scalarSrc)}"></script>
   </body>
 </html>`;
   }

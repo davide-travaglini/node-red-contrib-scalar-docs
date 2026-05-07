@@ -26,6 +26,7 @@ Auto-generates and serves a [Scalar](https://scalar.com) API documentation UI fo
 | Node.js | `>=16` |
 | Node-RED | `>=3.0.0` |
 | express | `>=4.0.0` (already bundled with Node-RED) |
+| @scalar/api-reference | `>=1.0.0` (bundled — fallback to CDN if missing) |
 
 ## Installation
 
