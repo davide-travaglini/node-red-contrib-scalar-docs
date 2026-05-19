@@ -14,9 +14,12 @@ Auto-generates and serves a [Scalar](https://scalar.com) API documentation UI fo
 
 - Auto-discovery of all `http in` nodes across all flows
 - Per-endpoint metadata: summary, description, tags, parameters, request body, response schemas
+- Tag descriptions extracted directly from Node-RED flow information properties
 - Built-in system endpoints served under `/api/scalar/` (`/api/scalar/health`, `/api/scalar/ping`, etc.), each individually toggleable
 - Modern interactive UI with multiple Scalar themes
-- Optional Bearer token to protect the docs and the OpenAPI spec
+- Optional Bearer token to protect the docs and the OpenAPI spec (stored securely in Node-RED credentials, generating OpenAPI Security Schemes)
+- Support for defining multiple base servers via JSON arrays
+- Export and import functionality for endpoint configurations
 - Inline button in every `http in` editor to jump directly to the endpoint config
 
 ## Requirements
@@ -57,7 +60,11 @@ Restart Node-RED after installation.
 | UI Path | `/api-docs` | Path where the Scalar UI is served |
 | Base URL | — | Server base URL written into the OpenAPI spec |
 | Theme | `default` | Scalar UI theme |
-| Bearer Token | — | If set, protects both the UI and the `/openapi.json` endpoint |
+| Bearer Token | — | If set, protects both the UI and the `/openapi.json` endpoint. Stored securely in Node-RED credentials and adds `securitySchemes` to the OpenAPI spec. |
+| Default Routes Prefix | `/api/scalar` | Prefix for the built-in system endpoints. |
+| Env Whitelist | — | Comma-separated list of environment variables allowed to be exposed in the `/env` endpoint (e.g., `NODE_ENV, PORT, HOST`). |
+| Context Whitelist | — | Comma-separated list of global context variables allowed to be exposed in the `/context` endpoint (e.g., `dbConfig, api_keys, userSettings`). |
+| Additional Servers | — | JSON array defining multiple servers, e.g., `[{"url":"http://prod", "description":"Production"}]` |
 
 ### Endpoints tab
 
@@ -66,7 +73,8 @@ Lists all `http in` nodes found in flows. Each entry can be:
 - Excluded from the documentation
 - Expanded to edit: summary, description (Markdown), tags, deprecated flag, parameters (query/path/header/cookie), request body (content-type + JSON Schema), response definitions (status code + description + JSON Schema)
 
-The **Cleanup orphans** button removes saved configs for nodes that no longer exist in the flow.
+The **Cleanup** button removes saved configs for nodes that no longer exist in the flow.
+The **Export** and **Import** buttons allow you to save your entire endpoint documentation configuration to a JSON file and restore it later.
 
 ### Default Routes tab
 
@@ -157,7 +165,7 @@ Available at `<UI Path>/openapi.json`. The spec is regenerated on every request 
 
 - `/env` exposes only variables prefixed with `NR_` or `NODE_RED_` unless an explicit whitelist is configured
 - `/context` exposes nothing without a whitelist
-- Set a Bearer token in the General settings to restrict documentation access in production
+- Set a Bearer token in the General settings to restrict documentation access in production (the token is saved securely in the Node-RED credentials file, not the flows file).
 
 ## License
 

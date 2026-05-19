@@ -567,11 +567,15 @@
       docsPath:         { value: '/api-docs' },
       theme:            { value: 'default' },
       baseUrl:          { value: '' },
-      bearerToken:      { value: '' },
+      servers:          { value: [] },
       endpoints:        { value: {} },
       defaultRoutes:    { value: {} },
+      defaultRoutesPrefix: { value: '/api/scalar' },
       envWhitelist:     { value: [] },
       contextWhitelist: { value: [] }
+    },
+    credentials: {
+      bearerToken: { type: "password" }
     },
 
     oneditprepare: function () {
@@ -596,8 +600,11 @@
       $('#node-input-description').val(node.description || '');
       $('#node-input-docsPath').val(node.docsPath || '/api-docs');
       $('#node-input-baseUrl').val(node.baseUrl || '');
-      $('#node-input-bearerToken').val(node.bearerToken || '');
       $('#node-input-theme').val(node.theme || 'default');
+      $('#node-input-defaultRoutesPrefix').val(node.defaultRoutesPrefix || '/api/scalar');
+      $('#node-input-envWhitelist').val((node.envWhitelist || []).join(', '));
+      $('#node-input-contextWhitelist').val((node.contextWhitelist || []).join(', '));
+      $('#node-input-servers').val(typeof node.servers === 'string' ? node.servers : JSON.stringify(node.servers || []));
 
       (function() {
         var p = $('#node-input-docsPath').val() || '/api-docs';
@@ -643,6 +650,41 @@
         });
       });
 
+      $('#scalar-export-endpoints').on('click', function (e) {
+        e.preventDefault();
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(_endpoints, null, 2));
+        const dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href", dataStr);
+        dlAnchorElem.setAttribute("download", "scalar-endpoints.json");
+        dlAnchorElem.click();
+      });
+
+      $('#scalar-import-endpoints').on('click', function (e) {
+        e.preventDefault();
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = ev => {
+          const file = ev.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = fileEvent => {
+            try {
+              const imported = JSON.parse(fileEvent.target.result);
+              if (typeof imported === 'object' && imported !== null) {
+                _endpoints = imported;
+                renderEndpointsList(endpointContainer);
+                RED.notify('Endpoints imported successfully', 'success');
+              }
+            } catch(err) {
+              RED.notify('Invalid JSON file', 'error');
+            }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      });
+
       loadHttpNodes(function () { renderEndpointsList(endpointContainer); });
 
       // ── Tab: Default Routes ────────────────────────────────────────────────
@@ -656,8 +698,11 @@
       this.description = $('#node-input-description').val();
       this.docsPath    = $('#node-input-docsPath').val();
       this.baseUrl     = $('#node-input-baseUrl').val();
-      this.bearerToken = $('#node-input-bearerToken').val();
       this.theme       = $('#node-input-theme').val();
+      this.defaultRoutesPrefix = $('#node-input-defaultRoutesPrefix').val();
+      this.envWhitelist = $('#node-input-envWhitelist').val().split(',').map(s => s.trim()).filter(Boolean);
+      this.contextWhitelist = $('#node-input-contextWhitelist').val().split(',').map(s => s.trim()).filter(Boolean);
+      this.servers = $('#node-input-servers').val();
 
       if (_expandedNode) {
         collectDetailFields($('#scalar-endpoints-container'));
@@ -843,10 +888,30 @@
         </label>
         <label style="flex:2">
           <span>🔒 Bearer Token (protects UI &amp; spec)</span>
-          <input type="password" id="node-input-bearerToken" placeholder="Leave empty to disable auth"
+          <input type="password" id="node-config-input-bearerToken" placeholder="Leave empty to disable auth"
             style="width:100%"/>
         </label>
       </div>
+
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="flex:1">
+          <span>Default Routes Prefix</span>
+          <input type="text" id="node-input-defaultRoutesPrefix" placeholder="/api/scalar" style="width:100%"/>
+        </label>
+        <label style="flex:1">
+          <span>Env Whitelist (comma sep)</span>
+          <input type="text" id="node-input-envWhitelist" placeholder="NODE_ENV, PORT" style="width:100%"/>
+        </label>
+        <label style="flex:1">
+          <span>Context Whitelist (comma sep)</span>
+          <input type="text" id="node-input-contextWhitelist" placeholder="myVar, another" style="width:100%"/>
+        </label>
+      </div>
+
+      <label style="display:block;margin-bottom:12px">
+        <span>Additional Servers (JSON array: [{"url":"...", "description":"..."}])</span>
+        <textarea id="node-input-servers" rows="3" placeholder='[{"url": "http://prod", "description": "Production"}]' style="width:100%;font-family:monospace;resize:vertical"></textarea>
+      </label>
 
       <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;padding:10px;font-size:12px;color:#3730a3">
         📖 Docs UI will be available at <a id="scalar-preview-path" href="/api-docs" target="_blank" rel="noopener noreferrer" style="color:#3730a3;font-weight:700">/api-docs</a><br/>
@@ -863,7 +928,11 @@
         <button class="red-ui-button" id="scalar-reload-nodes" title="Reload http-in nodes from flows"
           style="font-size:12px">🔄 Reload</button>
         <button class="red-ui-button" id="scalar-cleanup-orphans" title="Remove configs for nodes that no longer exist"
-          style="font-size:12px;color:#e57373">🧹 Cleanup orphans</button>
+          style="font-size:12px;color:#e57373">🧹 Cleanup</button>
+        <button class="red-ui-button" id="scalar-export-endpoints" title="Export endpoints configuration"
+          style="font-size:12px">📤 Export</button>
+        <button class="red-ui-button" id="scalar-import-endpoints" title="Import endpoints configuration"
+          style="font-size:12px">📥 Import</button>
       </div>
 
       <div id="scalar-endpoints-container" style="max-height:480px;overflow-y:auto;padding-right:4px"></div>

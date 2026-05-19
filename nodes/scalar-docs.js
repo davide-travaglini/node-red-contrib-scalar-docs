@@ -46,11 +46,13 @@ module.exports = function (RED) {
     node.description = config.description || '';
     node.theme       = config.theme       || 'default';
     node.baseUrl     = config.baseUrl     || '';
-    node.bearerToken = config.bearerToken || '';
+    node.bearerToken = (this.credentials && this.credentials.bearerToken) || '';
     node.endpoints   = config.endpoints   || {};
     node.defaultRoutes = config.defaultRoutes || {
       ping: true, health: true, health_live: true, info: true
     };
+    node.servers          = config.servers          || [];
+    node.defaultRoutesPrefix = config.defaultRoutesPrefix || '/api/scalar';
     node.envWhitelist     = config.envWhitelist     || [];
     node.contextWhitelist = config.contextWhitelist || [];
 
@@ -64,7 +66,11 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType('scalar-docs', ScalarDocsNode);
+  RED.nodes.registerType('scalar-docs', ScalarDocsNode, {
+    credentials: {
+      bearerToken: { type: "password" }
+    }
+  });
 
   // ── HTTP Routes ────────────────────────────────────────────────────────────
 
